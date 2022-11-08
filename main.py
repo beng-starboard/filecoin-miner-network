@@ -25,15 +25,16 @@ def countries_in_subgraph(G, subgraph_idx):
     k = subgraphs[subgraph_idx]
     # k = subgraph_list[subgraph_idx]
     all_countries = []
+    all_nodes = []
     num_nodes = len(k.nodes)
     for node in k.nodes(data=True):
+        all_nodes.append(node[0])
         try:
             if str(node[1]['country']) != 'nan':
                 all_countries.append(node[1]['country'])
         except:
             pass
-    return num_nodes, all_countries
-
+    return num_nodes, all_countries, all_nodes
 @task
 def generate_df_graph_from_file(file_dir, num_components=1000):
 
@@ -95,6 +96,14 @@ def generate_geographic_lookup_df(G):
     '''
     Generates a lookup table connecting every miner to a known and an implied location based on
     network connectivity. 
+
+    Parameters
+    ----------
+    G (nx.Network): network graph
+
+    Returns
+    -------
+    geo_df (pd.DataFrame): lookup table
     '''
 
     subgraphs = [nx.subgraph(G,c) for c in nx.connected_components(G)]
@@ -102,30 +111,28 @@ def generate_geographic_lookup_df(G):
     n_node_list = []
     mode_country_list = []
     n_geolocated_list = []
+    full_node_list = []
 
-    t = tqdm(range(number_of_subgraphs))
-    count = 0
-    for n in t:
-        t.set_description('Generating subgraph %s'%count)
-        count += 1
-        n_nodes, all_c = countries_in_subgraph(G, n)
+    for n in tqdm(range(number_of_subgraphs)):
+        n_nodes, all_c, all_nodes = countries_in_subgraph(G, n)
         n_node_list.append(n_nodes)
+        full_node_list.append(all_nodes)
         if len(all_c) > 0:
             mode_country_list.append(stats.mode(all_c).mode[0])
         else: 
             mode_country_list.append('None')
         n_geolocated_list.append(len(all_c))
 
-    geo_df = pd.DataFrame(np.array([n_node_list, mode_country_list, n_geolocated_list]).T, 
-                        columns=['num_nodes', 'mode_country', 'num_geolocated_nodes'])    
+    geo_df = pd.DataFrame(np.array([n_node_list, mode_country_list, n_geolocated_list, full_node_list]).T, 
+                        columns=['num_nodes', 'mode_country', 'num_geolocated_nodes', 'associated_nodes'])    
     geo_df.num_geolocated_nodes = pd.to_numeric(geo_df.num_geolocated_nodes)
     geo_df.num_nodes = pd.to_numeric(geo_df.num_nodes)
 
     return geo_df
 
 @flow
-def workflow(filename, n_components=800):
-    df, G = generate_df_graph_from_file(filename)
+def workflow(filename, num_components=2000):
+    df, G = generate_df_graph_from_file(filename, num_components)
     geo_df = generate_geographic_lookup_df(G)
     geo_df.to_csv('data/output.csv')
 
